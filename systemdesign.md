@@ -51,15 +51,15 @@ graph TD
 ### ✅ What is Implemented
 
 1. **Local Kubernetes Simulation & Deployment Scripts**:
-   - Demo microservice architectures defined in the [k8s](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/k8s) directory:
-     - [`db-deployment.yaml`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/k8s/db-deployment.yaml): Simple PostgreSQL database container.
-     - [`order-service-deployment.yaml`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/k8s/order-service-deployment.yaml): A mock Java/Go-like service simulating startup behavior that crashes if the `DB_POOL_SIZE` environment variable is set to `< 5`.
-     - [`payment-service-deployment.yaml`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/k8s/payment-service-deployment.yaml): A mock service simulating CPU metrics reporting that outputs spikes when the `/tmp/cpu_spike` file is present.
-   - Automating script [`deploy-demo.js`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/scripts/deploy-demo.js) to apply these deployments via `kubectl`.
-   - Node-based alert trigger script [`simulate-alert.js`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/scripts/simulate-alert.js) to simulate incident states via HTTP POST.
+   - Demo microservice architectures defined in the [k8s](./k8s) directory:
+     - [`db-deployment.yaml`](./k8s/db-deployment.yaml): Simple PostgreSQL database container.
+     - [`order-service-deployment.yaml`](./k8s/order-service-deployment.yaml): A mock Java/Go-like service simulating startup behavior that crashes if the `DB_POOL_SIZE` environment variable is set to `< 5`.
+     - [`payment-service-deployment.yaml`](./k8s/payment-service-deployment.yaml): A mock service simulating CPU metrics reporting that outputs spikes when the `/tmp/cpu_spike` file is present.
+   - Automating script [`deploy-demo.js`](./scripts/deploy-demo.js) to apply these deployments via `kubectl`.
+   - Node-based alert trigger script [`simulate-alert.js`](./scripts/simulate-alert.js) to simulate incident states via HTTP POST.
 
-2. **Backend Services & API Layer ([`backend`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend))**:
-   - Express server in [`index.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/index.ts) that exposes:
+2. **Backend Services & API Layer ([`backend`](./backend))**:
+   - Express server in [`index.ts`](./backend/src/index.ts) that exposes:
      - `/api/agora/token`: Generates secure RTC voice tokens.
      - `/api/agora/invite-agent`: Requests the Agora Conversational AI Cloud Orchestrator to join the incident room.
      - `/api/llm/chat/completions`: Receives transcribed voice input streams from Agora Cloud, processes it in the AI Loop, and returns a Server-Sent Events (SSE) stream back.
@@ -68,27 +68,27 @@ graph TD
    - Real-time communication via Socket.io to push real-time pod statuses, active incidents, learned constraints, logs, and voice transcripts to the UI dashboard.
    - Active background polling interval (every 4 seconds) to fetch Kubernetes pod lists.
 
-3. **In-Memory/File Database ([`db.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/db.ts))**:
+3. **In-Memory/File Database ([`db.ts`](./backend/src/db.ts))**:
    - Local JSON database storing policy constraints ("Lessons Learned") and incident history tables. Includes an API to fetch relevant stored policies matching specific microservices and triggers.
 
-4. **Kubernetes Integration ([`k8s.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/k8s.ts))**:
+4. **Kubernetes Integration ([`k8s.ts`](./backend/src/k8s.ts))**:
    - Implements K8s client SDK wrappers to list pods, fetch container logs, delete pods (force restarts), scale deployments, update deployment environment variables, and execute shell commands inside pods (creating and removing `/tmp/cpu_spike`).
 
-5. **GitHub Diff Correlation ([`github.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/github.ts))**:
+5. **GitHub Diff Correlation ([`github.ts`](./backend/src/github.ts))**:
    - Implements fetching closed PRs from GitHub REST API.
    - Implements line-by-line diff extraction for a PR.
    - Provides a comprehensive offline mock fallback when API keys are not supplied.
 
-6. **Slack Escalation Webhook ([`slack.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/slack.ts))**:
+6. **Slack Escalation Webhook ([`slack.ts`](./backend/src/slack.ts))**:
    - Formats a detailed incident report containing suspected root causes, confidence percentages, active constraints, and posts it to Slack via Incoming Webhooks (with a mock channel print fallback if no Webhook URL is supplied).
 
-7. **AI Reasoning Loop ([`agent.ts`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/backend/src/agent.ts))**:
+7. **AI Reasoning Loop ([`agent.ts`](./backend/src/agent.ts))**:
    - Built on Groq's Llama-3.3-70b-specdec using function calling.
    - Injectable system prompt template that extracts matching learned constraints dynamically.
    - Fully interactive offline simulator fallback code (`runSimulatedAgentLoop`) that bypasses Groq keys and provides keyboard-based dialogue simulation of target scenarios (Sneaky Config Shrink and Peak-Hour Resource Choke).
 
-8. **Frontend Dashboard ([`frontend`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/frontend))**:
-   - Single Page React dashboard in [`App.tsx`](file:///c:/Users/Priyansh/OneDrive/Desktop/knotic%20hackathon/frontend/src/App.tsx) with:
+8. **Frontend Dashboard ([`frontend`](./frontend))**:
+   - Single Page React dashboard in [`App.tsx`](./frontend/src/App.tsx) with:
      - Sidebar tracking real-time K8s pod health, restart counts, and status.
      - Center panel acting as an "Execution Stream" for console logs.
      - Sidebar tracking voice transcripts and stored "Lessons Learned" constraints.
