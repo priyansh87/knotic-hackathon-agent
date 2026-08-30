@@ -213,12 +213,12 @@ async function executeTool(name: string, args: any, activeIncident: Incident | n
         const result = await k8sTools.scaleDeployment(args.deploymentName, args.replicas, args.namespace);
         if (activeIncident) {
           db.addTimelineEvent(activeIncident.id, 'action', `Scaled deployment ${args.deploymentName} to ${args.replicas} replicas`);
-          if (args.deploymentName === 'payment-service' && args.replicas === 3) {
+          if (args.deploymentName === 'payment-service' && args.replicas > 1) {
             db.updateIncident(activeIncident.id, { 
               status: 'resolved',
-              likelyCause: 'Workload load spike (RECOVERY: SCALED REPLICAS TO 3)'
+              likelyCause: `Workload load spike (RECOVERY: SCALED REPLICAS TO ${args.replicas})`
             });
-            db.addTimelineEvent(activeIncident.id, 'resolution', 'Deployment replicas scaled to 3. Incident resolved.');
+            db.addTimelineEvent(activeIncident.id, 'resolution', `Deployment replicas scaled to ${args.replicas}. Incident resolved.`);
           }
         }
         return result;
