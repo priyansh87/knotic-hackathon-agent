@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+      - name: payment-service
+        image: alpine
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Starting payment-service v2.0.1..."
+          echo "Service listening on port 8081."
+          while true; do
+            if [ -f "/tmp/cpu_spike" ]; then
+              echo "[WARNING] CPU usage: 96% on core 0. Request processing latency: 1450ms. Alert threshold crossed!"
+            else
+              echo "[INFO] CPU usage: 8%. Request processing latency: 12ms. Request rate: 85 req/sec."
+            fi
+            sleep 5
+          done
+        ports:
+        - containerPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  ports:
+  - port: 8081
+    targetPort: 8081
+  selector:
+    app: payment-service

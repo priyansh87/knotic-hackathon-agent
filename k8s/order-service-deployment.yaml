@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  labels:
+    app: order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order-service
+        image: alpine
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Starting order-service v1.1.2..."
+          echo "Configured DB Host: incident-db:5432"
+          echo "Database pool size is set to: $DB_POOL_SIZE"
+          sleep 1
+          if [ -z "$DB_POOL_SIZE" ] || [ "$DB_POOL_SIZE" -lt 5 ]; then
+            echo "[INFO] Establishing database pool..."
+            sleep 2
+            echo "[ERROR] ConnectionTimeoutException: Database connection pool exhausted after 3000ms."
+            echo "[ERROR] Active connections: 3/3. Request queue size: 45."
+            echo "[FATAL] Failed to start order-service: Database connection failed."
+            exit 1
+          else
+            echo "[INFO] Database connection pool established successfully (size: $DB_POOL_SIZE)."
+            echo "[INFO] Service listening on port 8080."
+            while true; do
+              sleep 10
+            done
+          fi
+        env:
+        - name: DB_POOL_SIZE
+          value: "3" # Initial value triggering the crash loop
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: order-service
