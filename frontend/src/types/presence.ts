@@ -24,7 +24,8 @@ export interface SummonPayload {
   availableDevs: DevPresence[];
   liveCount: number;
   timestamp: string;
-  trugenGreeting: string;
+  greeting?: string;
+  trugenGreeting?: string;
 }
 
 export interface WarRoomMessage {

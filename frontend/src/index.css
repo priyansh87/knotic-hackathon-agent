@@ -1290,12 +1290,35 @@ body {
   grid-template-rows: repeat(2, 1fr);
 }
 
+.teams-video-grid.tiles-2 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+
+.teams-video-grid.tiles-3 {
+  grid-template-columns: 1.25fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.teams-video-grid.tiles-3 .trugen-face-tile,
+.teams-video-grid.tiles-3 .ai-face-tile {
+  grid-column: 1 / 2;
+  grid-row: 1 / 3;
+}
+
+.teams-video-grid.tiles-4 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
 .teams-video-grid.spotlight-layout {
   grid-template-columns: 2.5fr 1fr;
   grid-template-rows: repeat(3, 1fr);
 }
 
-.teams-video-grid.spotlight-layout .ai-tile {
+.teams-video-grid.spotlight-layout .ai-tile,
+.teams-video-grid.spotlight-layout .ai-face-tile,
+.teams-video-grid.spotlight-layout .trugen-face-tile {
   grid-column: 1 / 2;
   grid-row: 1 / 4;
 }
@@ -2510,7 +2533,9 @@ body {
    SAAS LANDING PAGE STYLING
    ==================================================== */
 .landing-container {
-  height: calc(100vh - 80px);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   background: #090b10;
@@ -3020,6 +3045,39 @@ body {
   border-color: #38bdf8;
   box-shadow: 0 0 30px rgba(56, 189, 248, 0.15);
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.06) 0%, #11141c 100%);
+}
+
+.presence-card.empty-peer-card {
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.empty-peer-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #94a3b8;
+  padding: 16px;
+}
+
+.empty-peer-content h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.empty-peer-content p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #64748b;
+  max-width: 240px;
 }
 
 .presence-card-header {

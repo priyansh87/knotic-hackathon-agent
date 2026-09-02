@@ -279,12 +279,12 @@ export default function App() {
         setTranscripts([
           {
             sender: 'System',
-            text: `Conversation initialized in simulator mode. Speak or type to converse with TruGenAI.`,
+            text: `Conversation initialized in simulator mode. Speak or type to converse with Knotic AI Incident Commander.`,
             timestamp: new Date().toLocaleTimeString()
           },
           {
             sender: 'Agent',
-            text: `Agent joined. Hello, I am your TruGenAI Incident Commander. I've joined channel "${channelName}". Alert me when anything is wrong.`,
+            text: `Agent joined. Hello, I am your Knotic AI Incident Commander. I've joined channel "${channelName}". Alert me when anything is wrong.`,
             timestamp: new Date().toLocaleTimeString()
           }
         ]);
@@ -324,10 +324,10 @@ export default function App() {
         if (inviteData.success) {
           addConsoleLog('system', `Agora Cloud Bot joined channel "${channelName}"!`);
         } else {
-          addConsoleLog('system', `Agora WebRTC Voice Channel active with App ID (${appId}). TruGenAI agent ready in War Room.`);
+          addConsoleLog('system', `Agora WebRTC Voice Channel active with App ID (${appId}). AI Commander ready in War Room.`);
         }
       } catch {
-        addConsoleLog('system', 'Agora WebRTC Voice Channel active. TruGenAI agent ready in War Room.');
+        addConsoleLog('system', 'Agora WebRTC Voice Channel active. AI Commander ready in War Room.');
       }
 
       setAgoraStatus('connected');
@@ -338,7 +338,7 @@ export default function App() {
       setTranscripts([
         {
           sender: 'System',
-          text: `Agora WebRTC voice link established. Speak directly into your microphone or chat with TruGenAI in the War Room.`,
+          text: `Agora WebRTC voice link established. Speak directly into your microphone or chat with Knotic AI in the War Room.`,
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
@@ -359,7 +359,7 @@ export default function App() {
         },
         {
           sender: 'Agent',
-          text: `Hello! I am your TruGenAI Incident Commander. Type your instructions below or in the War Room chat.`,
+          text: `Hello! I am your Knotic AI Incident Commander. Type your instructions below or in the War Room chat.`,
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
@@ -415,7 +415,7 @@ export default function App() {
 
       messagesPayload.push({ role: 'user', content: textToSend });
 
-      addConsoleLog('agent', 'Requesting completions from TruGenAI proxy endpoint...');
+      addConsoleLog('agent', 'Requesting completions from AI Incident Commander proxy endpoint...');
       
       const response = await fetch(`${BACKEND_URL}/api/llm/chat/completions`, {
         method: 'POST',
@@ -438,7 +438,7 @@ export default function App() {
       }
 
     } catch (err) {
-      addConsoleLog('agent', `TruGenAI proxy error: ${(err as Error).message}`);
+      addConsoleLog('agent', `AI Incident Commander error: ${(err as Error).message}`);
     }
   };
 
@@ -484,8 +484,8 @@ export default function App() {
           <div className="brand-section">
             <Activity style={{ width: '20px', height: '20px', color: '#22d3ee', flexShrink: 0 }} />
             <div>
-              <h1 className="brand-title">TruGenAI Incident Commander</h1>
-              <p className="brand-subtitle">Agora Voice & Teams War Room</p>
+              <h1 className="brand-title">Knotic Incident Commander</h1>
+              <p className="brand-subtitle">Autonomous SRE & Teams War Room</p>
             </div>
           </div>
         </div>
@@ -515,13 +515,13 @@ export default function App() {
               className={`nav-tab-btn ${currentView === 'dashboard' ? 'active dashboard' : ''}`}
             >
               <LayoutGrid style={{ width: '13px', height: '13px' }} />
-              <span>Ops Console</span>
+              <span>Cluster Console</span>
             </button>
           </div>
 
-          <div className="presence-live-chip" title="Live Devs Detected via Open Windows">
+          <div className="presence-live-chip" title="Live Engineers Connected in Open Browser Windows">
             <span className="pulse-green-dot" />
-            <span>{liveCount} of {totalOnCall} Live</span>
+            <span>{liveCount} {liveCount === 1 ? 'SRE' : 'SREs'} Connected</span>
           </div>
         </div>
 

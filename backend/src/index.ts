@@ -299,42 +299,8 @@ export interface DevPresence {
   socketId?: string;
 }
 
-// Initial on-call developer roster
-const defaultOnCallDevs: DevPresence[] = [
-  {
-    id: 'dev_sarah',
-    name: 'Sarah Chen',
-    role: 'Staff SRE - Platform Resilience',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    windowFocused: true,
-    documentVisible: true,
-    status: 'live',
-    lastPing: Date.now()
-  },
-  {
-    id: 'dev_alex',
-    name: 'Alex Rivera',
-    role: 'Senior Backend Eng - Payment & Orders',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    windowFocused: true,
-    documentVisible: true,
-    status: 'live',
-    lastPing: Date.now()
-  },
-  {
-    id: 'dev_elena',
-    name: 'Elena Rostova',
-    role: 'DevOps Lead - Kubernetes Core',
-    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
-    windowFocused: false,
-    documentVisible: true,
-    status: 'away',
-    lastPing: Date.now()
-  }
-];
-
+// Real Connected Developers Registry (Populated ONLY when browsers connect)
 const activeDevs = new Map<string, DevPresence>();
-defaultOnCallDevs.forEach(dev => activeDevs.set(dev.id, dev));
 
 function broadcastDevPresence() {
   const devsArray = Array.from(activeDevs.values());
@@ -346,13 +312,15 @@ function broadcastDevPresence() {
   });
 }
 
-// Heartbeat reaper: marks inactive devs as away
+// Heartbeat reaper: marks inactive tabs as away and removes stale disconnects
 setInterval(() => {
   const now = Date.now();
   let changed = false;
-  activeDevs.forEach((dev) => {
-    // For dynamically connected browser sockets, if no ping in 12s, mark away
-    if (dev.socketId && now - dev.lastPing > 12000 && dev.status !== 'away') {
+  activeDevs.forEach((dev, id) => {
+    if (now - dev.lastPing > 15000) {
+      activeDevs.delete(id);
+      changed = true;
+    } else if (now - dev.lastPing > 7000 && dev.status !== 'away') {
       dev.status = 'away';
       dev.windowFocused = false;
       changed = true;
@@ -361,7 +329,7 @@ setInterval(() => {
   if (changed) {
     broadcastDevPresence();
   }
-}, 5000);
+}, 4000);
 
 // ----------------------------------------------------
 // 4. UI Getters
@@ -423,13 +391,13 @@ app.post('/api/incidents/trigger', async (req, res) => {
         availableDevs,
         liveCount: availableDevs.length,
         timestamp: new Date().toISOString(),
-        trugenGreeting: "P1 Incident Detected: order-service is crash-looping with database connection pool exhaustion. TruGenAI and available engineers are now in the War Room."
+        greeting: "P1 Incident Detected: order-service is crash-looping with database connection pool exhaustion. Knotic AI Incident Commander and available engineers are now in the War Room."
       };
 
       io.emit('incident_auto_summon', summonPayload);
       broadcastSystemLog(`[AUTO-SUMMON] Emergency War Room created! Summoned ${availableDevs.length} available engineers.`, 'agent');
 
-      // TruGenAI joins the transcript automatically
+      // AI Incident Commander joins the transcript automatically
       io.emit('voice_transcript', {
         sender: 'Agent',
         text: "🚨 P1 Incident Protocol: order-service is crash-looping. PR #142 detected merged 15 mins ago reducing DB_POOL_SIZE to 3. I am 85% confident this is the root cause. Awaiting rollback command from War Room."
@@ -478,7 +446,7 @@ app.post('/api/incidents/trigger', async (req, res) => {
         availableDevs,
         liveCount: availableDevs.length,
         timestamp: new Date().toISOString(),
-        trugenGreeting: "P2 Incident Detected: payment-service CPU load at 96%. TruGenAI and on-call engineers are now connected."
+        greeting: "P2 Incident Detected: payment-service CPU load at 96%. Knotic AI Incident Commander and on-call engineers are now connected."
       };
 
       io.emit('incident_auto_summon', summonPayload);
@@ -647,13 +615,16 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`[Socket] Client disconnected: ${socket.id}`);
-    activeDevs.forEach((dev, id) => {
+    let removed = false;
+    for (const [id, dev] of activeDevs.entries()) {
       if (dev.socketId === socket.id) {
-        dev.status = 'away';
-        dev.windowFocused = false;
+        activeDevs.delete(id);
+        removed = true;
       }
-    });
-    broadcastDevPresence();
+    }
+    if (removed) {
+      broadcastDevPresence();
+    }
   });
 });
 

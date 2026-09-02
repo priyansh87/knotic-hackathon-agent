@@ -22,7 +22,7 @@ import {
   Layers,
   LayoutGrid
 } from 'lucide-react';
-import { TruGenAIFaceTimeTile } from './TruGenAIFaceTimeTile';
+import { AIFaceTimeTile } from './AIFaceTimeTile';
 import type { DevPresence, WarRoomMessage, WarRoomReaction } from '../types/presence';
 
 interface Pod {
@@ -112,6 +112,10 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
   // Floating reactions
   const [floatingReactions, setFloatingReactions] = useState<WarRoomReaction[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Real connected peers (excluding current user)
+  const peerDevs = activeDevs.filter(d => d.id !== myDev.id);
+  const totalTiles = 2 + peerDevs.length;
 
   // Chat input
   const [chatInput, setChatInput] = useState('');
@@ -454,9 +458,9 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                 )}
               </div>
 
-              {/* Minimized TruGenAI Face-Time PiP in Stage Mode */}
+              {/* Minimized AI Incident Commander Face-Time PiP in Stage Mode */}
               <div className="stage-ai-pip">
-                <TruGenAIFaceTimeTile
+                <AIFaceTimeTile
                   isSpeaking={isTruGenSpeaking}
                   latestTranscript={latestAgentTranscript}
                   confidence={activeIncident?.confidence || 85}
@@ -466,10 +470,10 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
             </div>
           ) : (
             /* VIEW MODE: GALLERY & SPOTLIGHT VIDEO GRID */
-            <div className={`teams-video-grid ${viewMode === 'spotlight' ? 'spotlight-layout' : 'grid-layout'}`}>
+            <div className={`teams-video-grid ${viewMode === 'spotlight' ? 'spotlight-layout' : 'grid-layout'} tiles-${Math.min(totalTiles, 4)}`}>
               
-              {/* TILE 1: TRUGENAI FACE-TIME AGENT */}
-              <TruGenAIFaceTimeTile
+              {/* TILE 1: AUTONOMOUS AI INCIDENT COMMANDER */}
+              <AIFaceTimeTile
                 isSpeaking={isTruGenSpeaking}
                 latestTranscript={latestAgentTranscript}
                 confidence={activeIncident?.confidence || 85}
@@ -477,12 +481,12 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                 onToggleSpotlight={() => setViewMode(prev => prev === 'spotlight' ? 'gallery' : 'spotlight')}
               />
 
-              {/* TILE 2: YOU (LEAD SRE - PRIYANSH) */}
+              {/* TILE 2: YOU (LEAD SRE - CURRENT BROWSER WINDOW) */}
               <div className="video-tile human-tile user-tile">
                 <div className="tile-header-bar">
                   <span className="window-status-badge active">
                     <span className="pulse-green-dot" />
-                    LIVE IN WINDOW
+                    LIVE IN TAB
                   </span>
                   {isBrowserListening && !isMuted && (
                     <span className="speech-listening-chip" title="Browser Web Speech Recognition Active">
@@ -511,7 +515,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                 <div className="tile-bottom-bar">
                   <div className="participant-name-pill">
                     <span className="teams-avatar-dot user" />
-                    <span>{myDev.name} (You - {myDev.role.split('-')[0]})</span>
+                    <span>{myDev.name} ({myDev.role})</span>
                   </div>
                   <div className="tile-icons-group">
                     {isMuted ? (
@@ -525,16 +529,16 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                 </div>
               </div>
 
-              {/* TILE 3 & 4: SRE TEAMMATES */}
-              {activeDevs.slice(0, 2).map((dev, i) => (
-                <div key={dev.id} className="video-tile human-tile">
+              {/* TILE 3+: REAL CONNECTED SRE PEERS (Only rendered if actual other browser sessions are open) */}
+              {peerDevs.map((dev) => (
+                <div key={dev.id} className="video-tile human-tile peer-tile">
                   <div className="tile-header-bar">
-                    <span className="window-status-badge active">
-                      <span className="pulse-green-dot" />
-                      ACTIVE IN WINDOW
+                    <span className={`window-status-badge ${dev.windowFocused ? 'active' : 'away'}`}>
+                      <span className={dev.windowFocused ? 'pulse-green-dot' : 'away-dot'} />
+                      {dev.windowFocused ? 'ACTIVE IN TAB' : 'TAB IN BACKGROUND'}
                     </span>
-                    {i === 0 && isTruGenSpeaking && (
-                      <span className="peer-active-pill">Listening</span>
+                    {dev.status === 'in_warroom' && (
+                      <span className="peer-active-pill">In War Room</span>
                     )}
                   </div>
 
@@ -550,7 +554,9 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                       <span>{dev.name} ({dev.role.split('-')[0]})</span>
                     </div>
                     <div className="tile-icons-group">
-                      <Mic style={{ width: '13px', height: '13px', color: '#9ca3af' }} />
+                      <div className="user-audio-meter">
+                        <span /><span /><span />
+                      </div>
                     </div>
                   </div>
                 </div>

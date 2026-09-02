@@ -92,10 +92,10 @@ export const EmergencySummonModal: React.FC<EmergencySummonModalProps> = ({
             </div>
             <div className="trugen-box-text">
               <div className="trugen-box-header">
-                <strong>TruGenAI Incident Commander</strong>
-                <span className="ai-tag">Face-Time AI Active</span>
+                <strong>Autonomous AI Incident Commander</strong>
+                <span className="ai-tag">AI SRE Active</span>
               </div>
-              <p className="trugen-quote">"{summon.trugenGreeting}"</p>
+              <p className="trugen-quote">"{summon.greeting || summon.trugenGreeting}"</p>
             </div>
           </div>
 

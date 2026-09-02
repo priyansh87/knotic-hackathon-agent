@@ -1,4 +1,4 @@
-// Helper utility to play TruGenAI voice using Groq Cloud canopylabs/orpheus-v1-english model
+// Helper utility to play AI Incident Commander voice using Groq Cloud canopylabs/orpheus-v1-english model
 // with seamless fallback to browser Web SpeechSynthesis
 
 let currentAudio: HTMLAudioElement | null = null;
