@@ -247,11 +247,11 @@ async function executeTool(name: string, args: any, activeIncident: Incident | n
         return diff;
       }
       case 'save_constraint': {
-        if (!activeIncident) {
-          return 'No active incident context to link this constraint to.';
+        const incidentId = activeIncident ? activeIncident.id : 'global';
+        const constraint = db.saveConstraint(args.scope || 'global', args.trigger || 'operation', args.rule, incidentId);
+        if (activeIncident) {
+          db.addTimelineEvent(activeIncident.id, 'constraint_applied', `Learned new constraint: "${args.rule}"`);
         }
-        const constraint = db.saveConstraint(args.scope, args.trigger, args.rule, activeIncident.id);
-        db.addTimelineEvent(activeIncident.id, 'constraint_applied', `Learned new constraint: "${args.rule}"`);
         emitLog(`[Constraint Learned] Scope: ${args.scope}, Rule: "${args.rule}"`);
         return `Constraint successfully saved in persistent store: ${JSON.stringify(constraint)}`;
       }
@@ -313,13 +313,28 @@ export async function runAgentLoop(
     currentLoop++;
     emitLog(`[Agent Loop] Requesting LLM inference... (Run #${currentLoop})`);
 
-    // Call Groq
-    const response = await groq.chat.completions.create({
-      model: GROQ_MODEL,
-      messages: messagesToSend as any,
-      tools: agentTools,
-      tool_choice: 'auto'
-    });
+    // Call Groq with automatic 429 fallback
+    let response;
+    try {
+      response = await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: messagesToSend as any,
+        tools: agentTools,
+        tool_choice: 'auto'
+      });
+    } catch (err: any) {
+      if (err?.status === 429 && GROQ_MODEL !== 'openai/gpt-oss-20b') {
+        emitLog(`[Agent Loop] Rate limit on ${GROQ_MODEL}. Falling back to openai/gpt-oss-20b...`);
+        response = await groq.chat.completions.create({
+          model: 'openai/gpt-oss-20b',
+          messages: messagesToSend as any,
+          tools: agentTools,
+          tool_choice: 'auto'
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const choice = response.choices[0];
     const message = choice.message;

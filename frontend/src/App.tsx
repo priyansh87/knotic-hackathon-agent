@@ -106,6 +106,7 @@ export default function App() {
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
+  const hasRtcAudioRef = useRef(false);
 
   // Developer Presence Tracker Hook (tracks window focus & visibility)
   const {
@@ -121,6 +122,7 @@ export default function App() {
     isListening: isBrowserListening,
     isSupported: isBrowserSpeechSupported,
     interimTranscript,
+    permissionError,
     startListening,
     stopListening,
     toggleListening
@@ -157,17 +159,27 @@ export default function App() {
     });
 
     socket.on('voice_transcript', (data: { sender: 'Human' | 'Agent'; text: string }) => {
-      setTranscripts(prev => [
-        ...prev,
-        {
-          sender: data.sender,
-          text: data.text,
-          timestamp: new Date().toLocaleTimeString()
+      setTranscripts(prev => {
+        // Prevent duplicate consecutive entries with identical text
+        if (prev.length > 0) {
+          const last = prev[prev.length - 1];
+          if (last.sender === data.sender && last.text.trim().toLowerCase() === data.text.trim().toLowerCase()) {
+            return prev;
+          }
         }
-      ]);
+        return [
+          ...prev,
+          {
+            sender: data.sender,
+            text: data.text,
+            timestamp: new Date().toLocaleTimeString()
+          }
+        ];
+      });
 
-      // Play TruGenAI voice with Groq Cloud canopylabs/orpheus-v1-english TTS!
-      if (data.sender === 'Agent' && data.text) {
+      // ONLY play synthesized TTS if Agora WebRTC remote audio is NOT speaking!
+      // This prevents the dual-agent voice bug where Agora WebRTC and local TTS speak at the same time.
+      if (data.sender === 'Agent' && data.text && !hasRtcAudioRef.current) {
         playGroqTTS(
           data.text,
           'diana',
@@ -304,12 +316,16 @@ export default function App() {
         await rtcClient!.subscribe(user, mediaType);
         if (mediaType === 'audio') {
           user.audioTrack?.play();
+          hasRtcAudioRef.current = true;
           setVoiceActive(true);
           addConsoleLog('agent', 'Playing speech audio feed from voice agent.');
         }
       });
 
-      rtcClient.on('user-unpublished', () => {
+      rtcClient.on('user-unpublished', (_user, mediaType) => {
+        if (mediaType === 'audio') {
+          hasRtcAudioRef.current = false;
+        }
         setVoiceActive(false);
       });
 
@@ -368,6 +384,7 @@ export default function App() {
 
   const disconnectVoice = async () => {
     addConsoleLog('system', 'Closing Agora voice streams...');
+    hasRtcAudioRef.current = false;
     try {
       if (localMicTrack) {
         localMicTrack.stop();
@@ -604,7 +621,7 @@ export default function App() {
           activeDevs={activeDevs}
           liveCount={liveCount}
           transcripts={transcripts}
-          isTruGenSpeaking={voiceActive}
+          isAISpeaking={voiceActive}
           onLeaveWarRoom={() => setCurrentView('dashboard')}
           onSendInstruction={sendInstructionToAgent}
           onTriggerRollback={handleWarRoomRollback}
@@ -614,6 +631,7 @@ export default function App() {
           isBrowserListening={isBrowserListening}
           isBrowserSpeechSupported={isBrowserSpeechSupported}
           interimTranscript={interimTranscript}
+          permissionError={permissionError}
           onStartListening={startListening}
           onStopListening={stopListening}
           onToggleListening={toggleListening}

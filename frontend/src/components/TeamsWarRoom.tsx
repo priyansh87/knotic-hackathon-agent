@@ -20,9 +20,11 @@ import {
   ShieldAlert,
   RotateCcw,
   Layers,
-  LayoutGrid
+  LayoutGrid,
+  AlertCircle
 } from 'lucide-react';
 import { AIFaceTimeTile } from './AIFaceTimeTile';
+import { ChatMessageFormatter } from './ChatMessageFormatter';
 import type { DevPresence, WarRoomMessage, WarRoomReaction } from '../types/presence';
 
 interface Pod {
@@ -55,7 +57,7 @@ interface TeamsWarRoomProps {
   activeDevs: DevPresence[];
   liveCount: number;
   transcripts: { sender: string; text: string; timestamp: string }[];
-  isTruGenSpeaking: boolean;
+  isAISpeaking: boolean;
   onLeaveWarRoom: () => void;
   onSendInstruction: (text: string) => void;
   onTriggerRollback: () => void;
@@ -65,6 +67,7 @@ interface TeamsWarRoomProps {
   isBrowserListening?: boolean;
   isBrowserSpeechSupported?: boolean;
   interimTranscript?: string;
+  permissionError?: string | null;
   onStartListening?: () => void;
   onStopListening?: () => void;
   onToggleListening?: () => void;
@@ -78,7 +81,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
   activeDevs,
   liveCount,
   transcripts,
-  isTruGenSpeaking,
+  isAISpeaking,
   onLeaveWarRoom,
   onSendInstruction,
   onTriggerRollback,
@@ -88,11 +91,12 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
   isBrowserListening = false,
   isBrowserSpeechSupported = true,
   interimTranscript = '',
+  permissionError = null,
   onStartListening,
   onStopListening
 }) => {
-  // Meeting Controls State
-  const [isMuted, setIsMuted] = useState(false);
+  // Meeting Controls State: mic is MUTED by default (user must click Unmute to speak)
+  const [isMuted, setIsMuted] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<'chat' | 'people' | 'brief' | null>('chat');
@@ -117,19 +121,51 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
   const peerDevs = activeDevs.filter(d => d.id !== myDev.id);
   const totalTiles = 2 + peerDevs.length;
 
-  // Chat input
+  // Chat input and message history
   const [chatInput, setChatInput] = useState('');
   const [meetingChat, setMeetingChat] = useState<WarRoomMessage[]>([
     {
       id: 'msg_init',
-      sender: 'TruGenAI Commander',
+      sender: 'AI Incident Commander',
       role: 'Autonomous SRE Agent',
-      avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
+      avatar: '/avatars/trugen_anya.jpg',
       text: 'War Room initialized. Correlation telemetry active. Ready for incident triage.',
       timestamp: new Date().toLocaleTimeString(),
       isAI: true
     }
   ]);
+
+  // Sync incoming voice transcripts into the unified chat timeline with strict deduplication
+  useEffect(() => {
+    if (!transcripts || transcripts.length === 0) return;
+    const latest = transcripts[transcripts.length - 1];
+    if (!latest || !latest.text || !latest.text.trim()) return;
+
+    setMeetingChat(prev => {
+      // Prevent consecutive duplicate messages
+      if (prev.length > 0) {
+        const last = prev[prev.length - 1];
+        if (last.text.trim().toLowerCase() === latest.text.trim().toLowerCase()) {
+          return prev;
+        }
+      }
+
+      const isAI = latest.sender === 'Agent';
+      return [
+        ...prev,
+        {
+          id: `voice_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          sender: isAI ? 'AI Incident Commander' : (myDev?.name || 'Engineer'),
+          role: isAI ? 'Autonomous SRE Commander' : (myDev?.role || 'Lead SRE'),
+          avatar: isAI ? '/avatars/trugen_anya.jpg' : (myDev?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'),
+          text: latest.text,
+          timestamp: latest.timestamp,
+          isAI,
+          isVoice: true
+        }
+      ];
+    });
+  }, [transcripts, myDev]);
 
   // Meeting Duration Timer
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -303,7 +339,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
             <button
               onClick={() => setViewMode('spotlight')}
               className={`view-mode-btn ${viewMode === 'spotlight' ? 'active' : ''}`}
-              title="TruGenAI Spotlight"
+              title="AI Commander Spotlight"
             >
               <Sparkles style={{ width: '14px', height: '14px' }} />
               <span>AI Spotlight</span>
@@ -364,7 +400,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                 </div>
                 <div className="stage-author-pill">
                   <ScreenShare style={{ width: '13px', height: '13px', color: '#10b981' }} />
-                  <span>Screen Shared by TruGenAI & On-Call Team</span>
+                  <span>Screen Shared by Incident Commander & On-Call Team</span>
                 </div>
               </div>
 
@@ -461,10 +497,10 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
               {/* Minimized AI Incident Commander Face-Time PiP in Stage Mode */}
               <div className="stage-ai-pip">
                 <AIFaceTimeTile
-                  isSpeaking={isTruGenSpeaking}
+                  isSpeaking={isAISpeaking}
                   latestTranscript={latestAgentTranscript}
                   confidence={activeIncident?.confidence || 85}
-                  statusText={isTruGenSpeaking ? 'Explaining diff correlation...' : 'Spotlighting code diff'}
+                  statusText={isAISpeaking ? 'Explaining diff correlation...' : 'Spotlighting code diff'}
                 />
               </div>
             </div>
@@ -474,11 +510,14 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
               
               {/* TILE 1: AUTONOMOUS AI INCIDENT COMMANDER */}
               <AIFaceTimeTile
-                isSpeaking={isTruGenSpeaking}
+                isSpeaking={isAISpeaking}
                 latestTranscript={latestAgentTranscript}
                 confidence={activeIncident?.confidence || 85}
                 isSpotlight={viewMode === 'spotlight'}
                 onToggleSpotlight={() => setViewMode(prev => prev === 'spotlight' ? 'gallery' : 'spotlight')}
+                userName={myDev.name}
+                userId={myDev.id}
+                activeIncident={activeIncident}
               />
 
               {/* TILE 2: YOU (LEAD SRE - CURRENT BROWSER WINDOW) */}
@@ -488,10 +527,21 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                     <span className="pulse-green-dot" />
                     LIVE IN TAB
                   </span>
-                  {isBrowserListening && !isMuted && (
-                    <span className="speech-listening-chip" title="Browser Web Speech Recognition Active">
-                      <Mic style={{ width: '10px', height: '10px', color: '#22d3ee' }} />
-                      <span>{interimTranscript ? `"${interimTranscript}..."` : 'Listening...'}</span>
+                  {permissionError ? (
+                    <span className="speech-error-chip" title={permissionError}>
+                      <AlertCircle style={{ width: '11px', height: '11px', color: '#ef4444' }} />
+                      <span>Mic Blocked (Check Browser)</span>
+                    </span>
+                  ) : isBrowserListening && !isMuted ? (
+                    <span className="speech-listening-chip live" title="Browser Web Speech Recognition Active">
+                      <span className="pulse-green-dot" />
+                      <Mic style={{ width: '10px', height: '10px', color: '#10b981' }} />
+                      <span>{interimTranscript ? `"${interimTranscript}..."` : '🎙️ Mic Active (Speak)'}</span>
+                    </span>
+                  ) : (
+                    <span className="speech-muted-chip" title="Microphone Muted - Click Unmute on Dock">
+                      <MicOff style={{ width: '10px', height: '10px', color: '#9ca3af' }} />
+                      <span>Muted</span>
                     </span>
                   )}
                   {isHandRaised && (
@@ -599,27 +649,24 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
               <div className="drawer-chat-view">
                 <div className="chat-messages-container">
                   {meetingChat.map(msg => (
-                    <div key={msg.id} className={`chat-message-item ${msg.isAI ? 'ai-sender' : ''}`}>
-                      <img src={msg.avatar} alt={msg.sender} className="chat-avatar" />
+                    <div key={msg.id} className={`chat-message-item ${msg.isAI ? 'ai-sender' : 'human-sender'}`}>
+                      <div className="chat-avatar-wrapper">
+                        <img src={msg.avatar} alt={msg.sender} className="chat-avatar" />
+                        {msg.isAI && <span className="chat-ai-badge">AI</span>}
+                      </div>
                       <div className="chat-content">
                         <div className="chat-meta">
                           <span className="chat-author">{msg.sender}</span>
+                          {msg.isVoice && (
+                            <span className="voice-tag-chip" title="Spoken via Voice Channel">
+                              <Mic style={{ width: '10px', height: '10px' }} /> Voice
+                            </span>
+                          )}
                           <span className="chat-time">{msg.timestamp}</span>
                         </div>
-                        <p className="chat-bubble">{msg.text}</p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Transcripts stream */}
-                  {transcripts.slice(-4).map((t, idx) => (
-                    <div key={`trans_${idx}`} className={`chat-message-item ${t.sender === 'Agent' ? 'ai-sender' : ''}`}>
-                      <div className="chat-content" style={{ width: '100%' }}>
-                        <div className="chat-meta">
-                          <span className="chat-author">🎙️ {t.sender === 'Agent' ? 'TruGenAI Voice' : 'Engineer Voice'}</span>
-                          <span className="chat-time">{t.timestamp}</span>
+                        <div className={`chat-bubble ${msg.isAI ? 'ai-bubble' : 'human-bubble'}`}>
+                          <ChatMessageFormatter content={msg.text} />
                         </div>
-                        <p className="chat-bubble voice-bubble">{t.text}</p>
                       </div>
                     </div>
                   ))}
@@ -645,7 +692,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                     type="text"
                     value={chatInput}
                     onChange={e => setChatInput(e.target.value)}
-                    placeholder="Ask TruGenAI or message the team..."
+                    placeholder="Ask AI Incident Commander or message the team..."
                     className="teams-input-field"
                   />
                   <button type="submit" className="btn-teams-send" title="Send">
@@ -662,7 +709,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                   <span>IN THIS WAR ROOM ({liveCount + 1})</span>
                 </div>
 
-                {/* TruGenAI */}
+                {/* AI Commander */}
                 <div className="people-item ai">
                   <div className="avatar-wrapper">
                     <div className="ai-icon-circle">
@@ -671,7 +718,7 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
                     <span className="avatar-status-dot online" />
                   </div>
                   <div className="people-info">
-                    <span className="people-name">TruGenAI Commander</span>
+                    <span className="people-name">AI Incident Commander</span>
                     <span className="people-role">Autonomous SRE Agent</span>
                   </div>
                   <span className="host-pill">HOST</span>
@@ -768,9 +815,9 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
       <footer className="teams-bottom-dock">
         <div className="dock-left-group">
           <span className="dock-room-label">Teams War Room</span>
-          <div className="voice-stack-badge" title="Developer speech recognized via Browser Web Speech API | TruGenAI speaks via Groq Cloud canopylabs/orpheus-v1-english">
+          <div className="voice-stack-badge" title="Developer speech recognized via Browser Web Speech API | AI Commander speaks via Groq Cloud & WebRTC">
             <Sparkles style={{ width: '11px', height: '11px', color: '#38bdf8' }} />
-            <span>Groq Orpheus TTS & Web Speech</span>
+            <span>Voice & Audio Link Active</span>
           </div>
         </div>
 
@@ -779,10 +826,10 @@ export const TeamsWarRoom: React.FC<TeamsWarRoomProps> = ({
           {/* Mute Button */}
           <button
             onClick={handleToggleMute}
-            className={`dock-btn ${isMuted ? 'btn-danger' : 'btn-normal'}`}
-            title={!isBrowserSpeechSupported ? 'Web Speech API unavailable in this browser' : isMuted ? 'Unmute & Start Voice Listening' : 'Mute Microphone'}
+            className={`dock-btn ${isMuted ? 'btn-danger' : 'btn-active'}`}
+            title={!isBrowserSpeechSupported ? 'Web Speech API unavailable in this browser' : isMuted ? 'Click to Unmute & Listen' : 'Microphone Active - Click to Mute'}
           >
-            {isMuted ? <MicOff style={{ width: '18px', height: '18px' }} /> : <Mic style={{ width: '18px', height: '18px' }} />}
+            {isMuted ? <MicOff style={{ width: '18px', height: '18px' }} /> : <Mic style={{ width: '18px', height: '18px', color: '#10b981' }} />}
             <span className="btn-label">{isMuted ? 'Unmute' : 'Mute'}</span>
           </button>
 

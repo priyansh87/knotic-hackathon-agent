@@ -102,6 +102,13 @@ export const db = {
   // Incidents API
   createIncident(service: string, title: string, severity: 'low' | 'medium' | 'high' | 'critical', description: string): Incident {
     const data = loadDb();
+    // Auto-resolve any previous active incidents so there is never a stale ghost incident
+    data.incidents.forEach(inc => {
+      if (inc.status === 'active') {
+        inc.status = 'resolved';
+      }
+    });
+
     const newIncident: Incident = {
       id: `inc_${Date.now()}`,
       service,
@@ -133,6 +140,26 @@ export const db = {
   getActiveIncident(): Incident | null {
     const data = loadDb();
     return data.incidents.find(inc => inc.status === 'active') || null;
+  },
+
+  resolveAllIncidents(reason: string = 'Cluster restored to healthy state'): Incident[] {
+    const data = loadDb();
+    let resolvedAny = false;
+    data.incidents.forEach(inc => {
+      if (inc.status === 'active') {
+        inc.status = 'resolved';
+        inc.timeline.push({
+          timestamp: new Date().toISOString(),
+          type: 'resolution',
+          message: reason
+        });
+        resolvedAny = true;
+      }
+    });
+    if (resolvedAny) {
+      saveDb(data);
+    }
+    return data.incidents;
   },
 
   updateIncident(id: string, updates: Partial<Omit<Incident, 'id' | 'createdAt'>>): Incident | null {

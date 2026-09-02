@@ -353,6 +353,161 @@ app.get('/api/devs', (req, res) => {
 });
 
 // ----------------------------------------------------
+// 4b. TruGen AI Integration & Text-to-Speech Endpoints
+// ----------------------------------------------------
+app.get('/api/trugen/status', (req, res) => {
+  const apiKey = process.env.TRUGEN_API_KEY || '';
+  const agentId = process.env.TRUGEN_AGENT_ID || '8aa0279f-d710-4bf3-815c-76be003ef9b7';
+  
+  res.json({
+    configured: Boolean(apiKey),
+    agentId,
+    embedUrl: `https://app.trugen.ai/embed/${agentId}?username=Lead%20SRE&id=sre_user&context=SRE%20War%20Room`
+  });
+});
+
+app.post('/api/trugen/create-agent', async (req, res) => {
+  const apiKey = process.env.TRUGEN_API_KEY || '4f3adf79fe734ab1ba6c51215b800e00';
+  const { agent_name, agent_system_prompt, avatar_key_id } = req.body;
+
+  try {
+    const response = await fetch('https://api.trugen.ai/v1/ext/agent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey
+      },
+      body: JSON.stringify({
+        agent_name: agent_name || 'Knotic AI SRE Commander',
+        agent_system_prompt: agent_system_prompt || 'You are Knotic AI Incident Commander, an autonomous Kubernetes SRE in a Teams War Room.',
+        config: { timeout: 300 },
+        avatars: [{ avatar_key_id: avatar_key_id || '665a1170' }]
+      })
+    });
+
+    const data = (await response.json()) as Record<string, any>;
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    res.json({
+      ...data,
+      embedUrl: `https://app.trugen.ai/embed/${data.id}?username=Lead%20SRE&id=sre_user&context=SRE%20War%20Room`
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/trugen/script-to-video', async (req, res) => {
+  const apiKey = process.env.TRUGEN_API_KEY || '4f3adf79fe734ab1ba6c51215b800e00';
+  const { script, avatar_id, voice_id, callback_url } = req.body;
+
+  try {
+    const response = await fetch('https://api.trugen.ai/v1/script-to-video/createVideo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey
+      },
+      body: JSON.stringify({
+        avatar_id: avatar_id || 'c5b563de',
+        voice_id: voice_id || 'FGY2WhTYpPnrIDTdsKH5',
+        provider_name: 'elevenlabs',
+        model_name: 'eleven_turbo_v2_5',
+        script: script || 'P1 Incident Detected: order-service is crash-looping with database connection pool exhaustion.',
+        callback_url: callback_url || (process.env.PUBLIC_TUNNEL_URL ? `${process.env.PUBLIC_TUNNEL_URL}/api/trugen/video-callback` : 'https://example.com/callback')
+      })
+    });
+
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// Groq Cloud Text-to-Speech endpoint (canopylabs/orpheus-v1-english)
+app.post('/api/tts/speak', async (req, res) => {
+  const { text, voice = 'diana' } = req.body;
+  if (!text) {
+    return res.status(400).json({ error: 'Text is required' });
+  }
+
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (!groqApiKey) {
+    return res.status(500).json({ error: 'GROQ_API_KEY not configured' });
+  }
+
+  try {
+    const cleanText = text
+      .replace(/[*#_`~[\]]/g, '')
+      .replace(/\n+/g, ' ')
+      .trim();
+
+    const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'canopylabs/orpheus-v1-english',
+        voice,
+        input: cleanText,
+        response_format: 'wav'
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({ error: errText });
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    res.set({
+      'Content-Type': 'audio/wav',
+      'Content-Length': audioBuffer.byteLength.toString(),
+      'Cache-Control': 'no-cache'
+    });
+    res.send(Buffer.from(audioBuffer));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// Helper to keep TruGen AI Cloud Agent updated with live incident context
+async function syncTruGenAgentContext(incident: any) {
+  const apiKey = process.env.TRUGEN_API_KEY || '4f3adf79fe734ab1ba6c51215b800e00';
+  const agentId = process.env.TRUGEN_AGENT_ID || '8aa0279f-d710-4bf3-815c-76be003ef9b7';
+  if (!apiKey || !agentId) return;
+
+  try {
+    const prompt = incident
+      ? `You are Knotic AI Incident Commander, an autonomous SRE in a Teams War Room.
+Active Incident: ${incident.title} (Severity: ${incident.severity.toUpperCase()})
+Affected Service: ${incident.service}
+Description: ${incident.description}
+Likely Cause: ${incident.likelyCause || 'Under investigation'}
+${incident.service === 'order-service' ? 'Root Cause: PR #142 inadvertently reduced DB_POOL_SIZE from 20 to 3. Recommended Remediation: Approve rollback to restore pool size 20.' : 'High traffic surge. Scaling to 3 replicas recommended.'}
+Answer questions concisely like an expert SRE. Help the on-call engineer verify logs, PR diffs, and approve rollback.`
+      : `You are Knotic AI Incident Commander, an autonomous Kubernetes SRE. The production cluster is currently healthy and all pods are operational.`;
+
+    await fetch(`https://api.trugen.ai/v1/ext/agent/${agentId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey
+      },
+      body: JSON.stringify({ agent_system_prompt: prompt })
+    });
+    console.log(`[TruGen] Synced live incident context to TruGen Agent ${agentId}`);
+  } catch (err) {
+    console.warn(`[TruGen] Failed to sync agent context: ${(err as Error).message}`);
+  }
+}
+
+// ----------------------------------------------------
 // 5. Incident Injection & Remediation Simulation Endpoints
 // ----------------------------------------------------
 app.post('/api/incidents/trigger', async (req, res) => {
@@ -402,6 +557,9 @@ app.post('/api/incidents/trigger', async (req, res) => {
         sender: 'Agent',
         text: "🚨 P1 Incident Protocol: order-service is crash-looping. PR #142 detected merged 15 mins ago reducing DB_POOL_SIZE to 3. I am 85% confident this is the root cause. Awaiting rollback command from War Room."
       });
+
+      // Sync live context to TruGen cloud agent
+      syncTruGenAgentContext(incident);
 
       res.json({ success: true, incident, summon: summonPayload });
     } catch (err) {
@@ -457,6 +615,9 @@ app.post('/api/incidents/trigger', async (req, res) => {
         text: "⚠️ Alert: payment-service CPU saturation reached 96%. Reviewing learned constraints before proposing restart or scale action."
       });
 
+      // Sync live context to TruGen cloud agent
+      syncTruGenAgentContext(incident);
+
       res.json({ success: true, incident, summon: summonPayload });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -498,11 +659,15 @@ app.post('/api/incidents/resolve', async (req, res) => {
     }
 
     db.updateIncident(incidentId, { status: 'resolved' });
-    db.addTimelineEvent(incidentId, 'resolution', 'Incident marked resolved. Local cluster restored to healthy state.');
+    db.resolveAllIncidents('Incident marked resolved. Local cluster restored to healthy state.');
     
     io.emit('incidents_update', db.getIncidents());
     io.emit('warroom_resolved', { incidentId, title: activeIncident.title });
     broadcastSystemLog(`Incident "${activeIncident.title}" resolved successfully.`, 'system');
+
+    // Sync healthy state to TruGen cloud agent
+    syncTruGenAgentContext(null);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -628,15 +793,40 @@ io.on('connection', (socket) => {
   });
 });
 
-// K8s Pod status poller (updates UI every 4 seconds)
+// K8s Pod status poller & cluster health auto-reconciliation (every 3 seconds)
 setInterval(async () => {
   try {
     const pods = await k8sTools.listPods();
     io.emit('k8s_pods_update', pods);
+
+    // Auto-reconciliation: If Kubernetes pods are all Running & Ready, resolve any lingering active incident
+    const activeIncident = db.getActiveIncident();
+    if (activeIncident) {
+      const servicePods = pods.filter(p => p.name.startsWith(activeIncident.service));
+      if (servicePods.length > 0) {
+        const allRunning = servicePods.every(p => p.status === 'Running');
+        const noneCrashing = servicePods.every(p => !p.status.includes('Crash') && !p.status.includes('Error'));
+
+        if (allRunning && noneCrashing) {
+          console.log(`[Auto-Reconciliation] All pods for ${activeIncident.service} are healthy. Auto-resolving incident ${activeIncident.id}`);
+          db.updateIncident(activeIncident.id, { 
+            status: 'resolved',
+            confidence: 100,
+            likelyCause: activeIncident.likelyCause || 'Cluster remediated and pods healthy'
+          });
+          db.addTimelineEvent(activeIncident.id, 'resolution', 'All cluster pods are running and healthy. Incident auto-resolved.');
+          db.resolveAllIncidents('All cluster pods are running and healthy. Incident auto-resolved.');
+          io.emit('incidents_update', db.getIncidents());
+          io.emit('warroom_resolved', { incidentId: activeIncident.id, title: activeIncident.title });
+          broadcastSystemLog(`[HEALTH RECONCILIATION] All pods for ${activeIncident.service} are healthy. Incident resolved.`, 'k8s');
+          syncTruGenAgentContext(null);
+        }
+      }
+    }
   } catch (e) {
     // Suppress console logs to avoid flooding terminal if cluster not started yet
   }
-}, 4000);
+}, 3000);
 
 server.listen(PORT, () => {
   console.log(`====================================================`);

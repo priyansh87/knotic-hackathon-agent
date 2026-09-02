@@ -95,7 +95,7 @@ export const EmergencySummonModal: React.FC<EmergencySummonModalProps> = ({
                 <strong>Autonomous AI Incident Commander</strong>
                 <span className="ai-tag">AI SRE Active</span>
               </div>
-              <p className="trugen-quote">"{summon.greeting || summon.trugenGreeting}"</p>
+              <p className="trugen-quote">"{summon.greeting || 'Emergency War Room activated.'}"</p>
             </div>
           </div>
 

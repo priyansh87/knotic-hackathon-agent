@@ -25,7 +25,6 @@ export interface SummonPayload {
   liveCount: number;
   timestamp: string;
   greeting?: string;
-  trugenGreeting?: string;
 }
 
 export interface WarRoomMessage {
@@ -36,6 +35,7 @@ export interface WarRoomMessage {
   text: string;
   timestamp: string;
   isAI?: boolean;
+  isVoice?: boolean;
 }
 
 export interface WarRoomReaction {
