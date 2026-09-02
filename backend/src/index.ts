@@ -28,6 +28,7 @@ const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
 const AGORA_CUSTOMER_ID = process.env.AGORA_CUSTOMER_ID || '';
 const AGORA_CUSTOMER_SECRET = process.env.AGORA_CUSTOMER_SECRET || '';
 const PUBLIC_TUNNEL_URL = process.env.PUBLIC_TUNNEL_URL || '';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 
 // ----------------------------------------------------
 // HELPER: Broadcast logs to UI console via Websockets
@@ -89,13 +90,21 @@ app.post('/api/agora/invite-agent', async (req, res) => {
   }
 
   if (!AGORA_APP_ID || !AGORA_CUSTOMER_ID || !AGORA_CUSTOMER_SECRET) {
-    broadcastSystemLog('Agora App ID or customer credentials missing. Cannot invite Agent.', 'system');
-    return res.status(400).json({ error: 'Agora credentials missing' });
+    broadcastSystemLog('Agora RTC active. Cloud bot requires AGORA_CUSTOMER_ID and AGORA_CUSTOMER_SECRET in .env', 'system');
+    return res.json({
+      success: false,
+      mode: 'webrtc_direct',
+      message: 'Agora WebRTC channel is active! To invite Agora Cloud Bot, add AGORA_CUSTOMER_ID, AGORA_CUSTOMER_SECRET, and PUBLIC_TUNNEL_URL to .env'
+    });
   }
 
   if (!PUBLIC_TUNNEL_URL) {
-    broadcastSystemLog('PUBLIC_TUNNEL_URL missing. Agora Cloud cannot call back to this machine.', 'system');
-    return res.status(400).json({ error: 'PUBLIC_TUNNEL_URL env variable is not configured' });
+    broadcastSystemLog('Agora RTC active. Cloud bot requires PUBLIC_TUNNEL_URL (ngrok) in .env', 'system');
+    return res.json({
+      success: false,
+      mode: 'webrtc_direct',
+      message: 'Agora WebRTC channel is active! To receive callbacks from Agora Cloud Bot, set PUBLIC_TUNNEL_URL (e.g. ngrok http 5000)'
+    });
   }
 
   try {
@@ -177,6 +186,57 @@ app.post('/api/agora/invite-agent', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// 2b. Groq Cloud Text-to-Speech (canopylabs/orpheus-v1-english)
+// ----------------------------------------------------
+app.post('/api/tts/speak', async (req, res) => {
+  const { text, voice = 'diana' } = req.body;
+  if (!text) {
+    return res.status(400).json({ error: 'Text is required' });
+  }
+
+  if (!GROQ_API_KEY) {
+    return res.status(500).json({ error: 'GROQ_API_KEY is not configured in .env' });
+  }
+
+  try {
+    // Strip markdown formatting (*, #, `, []) for cleaner audio pronunciation
+    const cleanText = text
+      .replace(/[*#`_~>]/g, '')
+      .replace(/\[.*?\]\(.*?\)/g, '')
+      .replace(/\n+/g, ' ')
+      .trim()
+      .slice(0, 1000);
+
+    const groqRes = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'canopylabs/orpheus-v1-english',
+        voice: voice,
+        input: cleanText,
+        response_format: 'wav'
+      })
+    });
+
+    if (!groqRes.ok) {
+      const errText = await groqRes.text();
+      console.warn('[Groq TTS] Error calling orpheus-v1-english:', errText);
+      return res.status(groqRes.status).json({ error: errText });
+    }
+
+    res.setHeader('Content-Type', 'audio/wav');
+    const arrayBuffer = await groqRes.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error('[Groq TTS] Failed to generate speech:', err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ----------------------------------------------------
 // 3. OpenAI-Compatible Custom LLM Endpoint (SSE Stream)
 // ----------------------------------------------------
 app.post('/api/llm/chat/completions', async (req, res) => {
@@ -225,6 +285,85 @@ app.post('/api/llm/chat/completions', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// DEVELOPER PRESENCE & WAR ROOM REGISTRY
+// ----------------------------------------------------
+export interface DevPresence {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string;
+  windowFocused: boolean;
+  documentVisible: boolean;
+  status: 'live' | 'away' | 'in_warroom';
+  lastPing: number;
+  socketId?: string;
+}
+
+// Initial on-call developer roster
+const defaultOnCallDevs: DevPresence[] = [
+  {
+    id: 'dev_sarah',
+    name: 'Sarah Chen',
+    role: 'Staff SRE - Platform Resilience',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    windowFocused: true,
+    documentVisible: true,
+    status: 'live',
+    lastPing: Date.now()
+  },
+  {
+    id: 'dev_alex',
+    name: 'Alex Rivera',
+    role: 'Senior Backend Eng - Payment & Orders',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    windowFocused: true,
+    documentVisible: true,
+    status: 'live',
+    lastPing: Date.now()
+  },
+  {
+    id: 'dev_elena',
+    name: 'Elena Rostova',
+    role: 'DevOps Lead - Kubernetes Core',
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
+    windowFocused: false,
+    documentVisible: true,
+    status: 'away',
+    lastPing: Date.now()
+  }
+];
+
+const activeDevs = new Map<string, DevPresence>();
+defaultOnCallDevs.forEach(dev => activeDevs.set(dev.id, dev));
+
+function broadcastDevPresence() {
+  const devsArray = Array.from(activeDevs.values());
+  const liveCount = devsArray.filter(d => d.status === 'live' || d.status === 'in_warroom').length;
+  io.emit('dev_presence_update', {
+    devs: devsArray,
+    liveCount,
+    totalOnCall: devsArray.length
+  });
+}
+
+// Heartbeat reaper: marks inactive devs as away
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  activeDevs.forEach((dev) => {
+    // For dynamically connected browser sockets, if no ping in 12s, mark away
+    if (dev.socketId && now - dev.lastPing > 12000 && dev.status !== 'away') {
+      dev.status = 'away';
+      dev.windowFocused = false;
+      changed = true;
+    }
+  });
+  if (changed) {
+    broadcastDevPresence();
+  }
+}, 5000);
+
+// ----------------------------------------------------
 // 4. UI Getters
 // ----------------------------------------------------
 app.get('/api/incidents', (req, res) => {
@@ -233,6 +372,16 @@ app.get('/api/incidents', (req, res) => {
 
 app.get('/api/constraints', (req, res) => {
   res.json(db.getConstraints());
+});
+
+app.get('/api/devs', (req, res) => {
+  const devsArray = Array.from(activeDevs.values());
+  const liveCount = devsArray.filter(d => d.status === 'live' || d.status === 'in_warroom').length;
+  res.json({
+    devs: devsArray,
+    liveCount,
+    totalOnCall: devsArray.length
+  });
 });
 
 // ----------------------------------------------------
@@ -262,10 +411,31 @@ app.post('/api/incidents/trigger', async (req, res) => {
       
       db.addTimelineEvent(incident.id, 'investigation', 'Injected pool configuration change into K8s deployment.');
       
-      // Notify frontends
+      // Notify frontends of updated incidents
       io.emit('incidents_update', db.getIncidents());
       broadcastSystemLog('Scenario A failure injected successfully. Pods are crash-looping.', 'k8s');
-      res.json({ success: true, incident });
+
+      // 3. EMERGENCY AUTO-SUMMON PROTOCOL: Summon available devs into Teams War Room
+      const availableDevs = Array.from(activeDevs.values()).filter(d => d.status === 'live' || d.status === 'in_warroom');
+      const summonPayload = {
+        incident,
+        roomId: 'warroom-order-service',
+        availableDevs,
+        liveCount: availableDevs.length,
+        timestamp: new Date().toISOString(),
+        trugenGreeting: "P1 Incident Detected: order-service is crash-looping with database connection pool exhaustion. TruGenAI and available engineers are now in the War Room."
+      };
+
+      io.emit('incident_auto_summon', summonPayload);
+      broadcastSystemLog(`[AUTO-SUMMON] Emergency War Room created! Summoned ${availableDevs.length} available engineers.`, 'agent');
+
+      // TruGenAI joins the transcript automatically
+      io.emit('voice_transcript', {
+        sender: 'Agent',
+        text: "🚨 P1 Incident Protocol: order-service is crash-looping. PR #142 detected merged 15 mins ago reducing DB_POOL_SIZE to 3. I am 85% confident this is the root cause. Awaiting rollback command from War Room."
+      });
+
+      res.json({ success: true, incident, summon: summonPayload });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -299,7 +469,27 @@ app.post('/api/incidents/trigger', async (req, res) => {
       // Notify frontends
       io.emit('incidents_update', db.getIncidents());
       broadcastSystemLog('Scenario B CPU load spike injected successfully.', 'k8s');
-      res.json({ success: true, incident });
+
+      // EMERGENCY AUTO-SUMMON PROTOCOL
+      const availableDevs = Array.from(activeDevs.values()).filter(d => d.status === 'live' || d.status === 'in_warroom');
+      const summonPayload = {
+        incident,
+        roomId: 'warroom-payment-service',
+        availableDevs,
+        liveCount: availableDevs.length,
+        timestamp: new Date().toISOString(),
+        trugenGreeting: "P2 Incident Detected: payment-service CPU load at 96%. TruGenAI and on-call engineers are now connected."
+      };
+
+      io.emit('incident_auto_summon', summonPayload);
+      broadcastSystemLog(`[AUTO-SUMMON] Emergency War Room created! Summoned ${availableDevs.length} engineers for payment-service.`, 'agent');
+
+      io.emit('voice_transcript', {
+        sender: 'Agent',
+        text: "⚠️ Alert: payment-service CPU saturation reached 96%. Reviewing learned constraints before proposing restart or scale action."
+      });
+
+      res.json({ success: true, incident, summon: summonPayload });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -343,6 +533,7 @@ app.post('/api/incidents/resolve', async (req, res) => {
     db.addTimelineEvent(incidentId, 'resolution', 'Incident marked resolved. Local cluster restored to healthy state.');
     
     io.emit('incidents_update', db.getIncidents());
+    io.emit('warroom_resolved', { incidentId, title: activeIncident.title });
     broadcastSystemLog(`Incident "${activeIncident.title}" resolved successfully.`, 'system');
     res.json({ success: true });
   } catch (err) {
@@ -351,7 +542,7 @@ app.post('/api/incidents/resolve', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// WebSockets connection
+// WebSockets connection & War Room Events
 // ----------------------------------------------------
 io.on('connection', (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
@@ -359,9 +550,110 @@ io.on('connection', (socket) => {
   // Send initial data to client
   socket.emit('incidents_update', db.getIncidents());
   socket.emit('constraints_update', db.getConstraints());
-  
+  broadcastDevPresence();
+
+  // 1. Dev Presence Heartbeat from Browser Window
+  socket.on('dev_presence_ping', (data: {
+    devId: string;
+    name: string;
+    role: string;
+    avatar: string;
+    windowFocused: boolean;
+    documentVisible: boolean;
+    status?: 'live' | 'away' | 'in_warroom';
+  }) => {
+    const status = data.status || (data.windowFocused ? 'live' : data.documentVisible ? 'live' : 'away');
+    activeDevs.set(data.devId, {
+      id: data.devId,
+      name: data.name,
+      role: data.role,
+      avatar: data.avatar,
+      windowFocused: data.windowFocused,
+      documentVisible: data.documentVisible,
+      status,
+      lastPing: Date.now(),
+      socketId: socket.id
+    });
+    broadcastDevPresence();
+  });
+
+  // 2. War Room Real-time Chat
+  socket.on('warroom_chat_send', (msg: {
+    id: string;
+    sender: string;
+    role: string;
+    avatar: string;
+    text: string;
+    timestamp: string;
+  }) => {
+    io.emit('warroom_chat_broadcast', msg);
+    broadcastSystemLog(`[War Room Chat] ${msg.sender}: "${msg.text}"`, 'agent');
+  });
+
+  // 3. War Room Floating Reactions
+  socket.on('warroom_reaction_send', (reaction: {
+    devId: string;
+    name: string;
+    emoji: string;
+    id: string;
+  }) => {
+    io.emit('warroom_reaction_broadcast', reaction);
+  });
+
+  // 4. War Room Stage Spotlight Mode
+  socket.on('warroom_spotlight_set', (spotlight: {
+    mode: 'gallery' | 'agent' | 'stage_topology' | 'stage_diff' | 'stage_terminal';
+    setBy: string;
+  }) => {
+    io.emit('warroom_spotlight_broadcast', spotlight);
+  });
+
+  // 5. War Room Direct Control Action
+  socket.on('warroom_trigger_action', async (actionData: {
+    action: 'rollback' | 'scale' | 'restart' | 'investigate' | 'resolve';
+    service: string;
+    triggeredBy: string;
+  }) => {
+    broadcastSystemLog(`[War Room Action] ${actionData.triggeredBy} requested "${actionData.action}" for ${actionData.service}`, 'system');
+    
+    const activeIncident = db.getActiveIncident();
+    if (actionData.action === 'rollback' && activeIncident) {
+      await k8sTools.updateDeploymentEnv(actionData.service, 'DB_POOL_SIZE', '20');
+      db.updateIncident(activeIncident.id, {
+        status: 'resolved',
+        confidence: 100,
+        likelyCause: 'PR #142 Connection Pool Reduction (RESOLVED: BUMPED TO 20)'
+      });
+      db.addTimelineEvent(activeIncident.id, 'resolution', `War Room initiated rollback to pool size 20 by ${actionData.triggeredBy}.`);
+      io.emit('incidents_update', db.getIncidents());
+      io.emit('voice_transcript', {
+        sender: 'Agent',
+        text: `Rollback command executed for ${actionData.service}. Connection pool restored to 20. Pods stabilizing.`
+      });
+    } else if (actionData.action === 'scale' && activeIncident) {
+      await k8sTools.scaleDeployment(actionData.service, 3);
+      db.updateIncident(activeIncident.id, {
+        status: 'resolved',
+        likelyCause: 'Workload load spike (RESOLVED: SCALED TO 3 REPLICAS)'
+      });
+      db.addTimelineEvent(activeIncident.id, 'resolution', `War Room initiated scaling to 3 replicas by ${actionData.triggeredBy}.`);
+      io.emit('incidents_update', db.getIncidents());
+      io.emit('voice_transcript', {
+        sender: 'Agent',
+        text: `Scaling deployment ${actionData.service} to 3 replicas. Resource pressure mitigated.`
+      });
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`[Socket] Client disconnected: ${socket.id}`);
+    activeDevs.forEach((dev, id) => {
+      if (dev.socketId === socket.id) {
+        dev.status = 'away';
+        dev.windowFocused = false;
+      }
+    });
+    broadcastDevPresence();
   });
 });
 
@@ -378,6 +670,8 @@ setInterval(async () => {
 server.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` AI Incident Commander Backend listening on Port ${PORT}`);
+  console.log(` Teams War Room & Dev Presence Engine active`);
   console.log(` Custom LLM completions proxy at /api/llm/chat/completions`);
   console.log(`====================================================`);
 });
+
